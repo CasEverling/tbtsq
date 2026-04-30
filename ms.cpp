@@ -10,17 +10,14 @@ void MSQueue<T>::enqueue(T&& val) {
     });
 
     while (true) {
-        Pointer curr_tail = tail.load(std::memory_order_relaxed);
-        Pointer next = curr_tail.next();
+        auto curr_tail = tail.load(std::memory_order_relaxed);
+        auto next = (curr_tail.ptr)->next.load(std::memory_order_acquire);
 
         if (curr_tail == tail.load(std::memory_order_acquire) {
-            if ( tail.compare_exchange_waek( 
+            if ( tail.compare_exchange_weak( 
                     curr_tail, { node, next.counter + 1 }, 
                     std::memory_order_acq_rel, std::memory_order_relaxed
-                ))
-            {
-                break;
-            }
+                )) break;
 
             tail.compare_exchange_strong( 
                 curr_tail, { next, next.counter + 1 },
@@ -33,19 +30,31 @@ void MSQueue<T>::enqueue(T&& val) {
 template<typename T>
 bool MSQueue<T>::dequeue(std::shared_ptr<T>& retVal) {
     while (true) {
-        Pointer pointer_head = head.load(std::memory_order_relaxed);
-        Pointer pointer_tail = tail.load(std::memory_order_relaxed);
+        auto head_ptr = head.load(std::memory_order_relaxed);
+        auto tail_ptr = tail.load(std::memoty_order_relaxed);
+        auto next_ptr = head_ptr.ptr->next.load(std::memoty_order_acquire);
+        next_ptr.count += 1; 
 
-        Node* next = pointer_head.next;
-
-        if (pointer = head.load(std::memory_order_acquire)) {
-            if (pointer_head.ptr == pointer_tail.ptr) {
-                if (next == nullptr)
+        if (head_ptr = head.load(std::memory_order_acquire) {
+            if (head_ptr.ptr = tail_ptr.ptr) {
+                if (next_ptre.ptr == nullptr) {
                     return false;
+                }
+                
                 tail.compare_exchange_weak(
-                    pointer_tail, next
-
-
+                    tail_ptr, next_ptr,
+                    std::memory_order_acq_rel, std::memory_order_relaxed
+                );
+            }
+        } 
+        
+        else if (head.compare_eschange_weak(
+                    head_ptr, next_ptr,
+                    std::memory_order_acq_rel, std::memory_order_relaxed
+            )) break;
+    }
+    return true;
+}
                 
                 
 

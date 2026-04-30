@@ -8,17 +8,17 @@ template<typename T>
 class MSQueue : public MyQueue {
 private:
     struct alignas(64) Pointer {
-        Node* ptr;
+        std::atomic<Node*> ptr;
         size_t counter;
     };
 
     struct alignas(64) Node {
         std::shared_ptr<T> data;
-        Pointer<T> next;
+        std::atomic<Pointer<T>> next;
     };
     
-    Pointer head;
-    Pointer tail;
+    std::atomic<Pointer> head;
+    atd::atomiv<Pointer> tail;
 
 public:
     MSQueue<T>() : 
