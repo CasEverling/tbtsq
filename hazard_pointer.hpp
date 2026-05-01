@@ -2,24 +2,27 @@
 #include <memory>
 #include <atomic>
 #include <vector>
-
-using Node = struct _Node<T>;
-using Pointer = struct _Pointer<T>;
-
+    
 template<typename T>
 class MSHPQ {
 public:
-    struct _Node<T>;
-    struct _Pointer<T>;
-
+    struct alignas(64) Node{
+        std::shared_ptr<T> data;
+        std::atomic<Node*> next;
+    };
+   
     class Instance : public MyQueue {
     private:
-        std::vector<Pointer> retiredPointers;
-        std::shred_ptr<MSHPQ> queue;
+        std::vector<Node*> retiredPointers;
+        std::vector<Node*> readyPointers;
+
+        MSHPQ* queue;
+        size_t id;
+
         MSHPQ::Instance();
 
         void scan();
-        void prepare_for_reintegration;
+        void prepare_for_reintegration(Node* node);
 
     public:
         void enqueue(T&& val);
@@ -28,7 +31,16 @@ public:
 
 private:
     MSHPQ();
+    
+    std::vector<std::atomic<Node*>> hazardPointers;
+    std::atomic<size_t> _users;
+    size_t _max_users;
 
+    std::atomic<Node*> _head;
+    std::atomic<Node*> _tail;
+    
+    friend class MSHPQ<T>Instance;
+    
 public:
     static std::shared_ptr<MSHPQ<T>> create(size_t max_users);
     MSHPQ<T>::Instance instantiate();
