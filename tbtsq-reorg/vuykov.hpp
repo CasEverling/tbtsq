@@ -21,8 +21,6 @@ private:
         std::shared_ptr<T>  data;
         std::atomic_flag    ready = ATOMIC_FLAG_INIT; // cleared = empty
 
-        // Nodes are not copyable — atomic_flag and shared_ptr together
-        // have no safe copy semantics in a concurrent context.
         Node()                         = default;
         Node(const Node&)              = delete;
         Node& operator=(const Node&)   = delete;
@@ -33,10 +31,8 @@ private:
     std::vector<Node> ring;
 
     alignas(64) const size_t capacity;
-    // Producer cursor — only written by producers, read by both.
-    alignas(64) std::atomic<size_t> tail;
-    // Consumer cursor — only written by consumers, read by both.
-    alignas(64) std::atomic<size_t> head;
+    alignas(64) std::atomic<size_t> tail;  // producer cursor
+    alignas(64) std::atomic<size_t> head;  // consumer cursor
 
 public:
     explicit VuykovQueue(size_t size)
@@ -49,6 +45,38 @@ public:
 
     ~VuykovQueue() override = default;
 
-    void enqueue(T&& val) override;
-    bool dequeue(std::shared_ptr<T>& retVal) override;
+    void enqueue(T&& val) override {
+        const size_t slot = tail.fetch_add(1, std::memory_order_relaxed) % capacity;
+        Node& node = ring[slot];
+
+        // Spin while the slot is still occupied (ready flag SET).
+        // Back-pressures producers when the ring is full.
+        while (node.ready.test(std::memory_order_acquire))
+            _mm_pause();
+
+        // Move the value in — no copy, safe for move-only types.
+        node.data = std::make_shared<T>(std::move(val));
+
+        // Publish: flag transitions cleared → set.
+        node.ready.test_and_set(std::memory_order_release);
+    }
+
+    bool dequeue(std::shared_ptr<T>& retVal) override {
+        const size_t slot = head.fetch_add(1, std::memory_order_relaxed) % capacity;
+        Node& node = ring[slot];
+
+        // Non-blocking: slot empty → undo cursor advance and report miss.
+        if (!node.ready.test(std::memory_order_acquire)) {
+            head.fetch_sub(1, std::memory_order_relaxed);
+            return false;
+        }
+
+        // Transfer ownership directly — no ref-count bump.
+        retVal    = std::move(node.data);
+        node.data = nullptr;
+
+        // Unpublish: flag transitions set → cleared, slot writable again.
+        node.ready.clear(std::memory_order_release);
+        return true;
+    }
 };

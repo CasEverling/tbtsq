@@ -5,34 +5,34 @@
 #include <memory>
 
 template<typename T>
-class MSQueue : public MyQueue {
+class MSQueue : public MyQueue<T> {              // BUG: missing <T>
 private:
-    struct alignas(64) Pointer {
-        std::atomic<Node*> ptr;
+    struct Node;
+
+    struct Pointer {
+        Node* ptr;
         size_t counter;
     };
 
     struct alignas(64) Node {
         std::shared_ptr<T> data;
-        std::atomic<Pointer<T>> next;
+        std::atomic<Pointer> next;               // BUG: was `std::atomic<Pointer<T>>` — Pointer is not a template
     };
-    
+
     std::atomic<Pointer> head;
-    atd::atomiv<Pointer> tail;
+    std::atomic<Pointer> tail;                   // BUG: was `atd::atomiv<Pointer>` (typos)
 
 public:
-    MSQueue<T>() : 
-        head({ new Node( nullptr, { nullptr, 0 } ), 0 }), 
-        tail(head);
+    MSQueue() :
+        head(Pointer{ new Node{ nullptr, Pointer{nullptr, 0} }, 0 }),
+        tail(head.load())                        // BUG: constructor had `;` instead of `{}`-body closing `}`
+    {}
 
-    MSQueue<T>(MSQueue<T>&) = default;
-    MSQueue<T>(MSQueue<T>&&) = default;
-    MSQueue<T> operator= (MSQueue&) = default;
-    ~MSQueue<T>() = default;
+    MSQueue(const MSQueue&) = delete;
+    MSQueue(MSQueue&&)      = delete;
+    MSQueue& operator=(const MSQueue&) = delete; // BUG: was missing return type &
+    ~MSQueue() = default;
 
-    void enqueue(T&& val);
-    bool dequeue(std::shared_ptr<T>& retVal);
+    void enqueue(T&& val) override;
+    bool dequeue(std::shared_ptr<T>& retVal) override;
 };
-    
-
-

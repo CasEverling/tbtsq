@@ -1,5 +1,5 @@
 /**
- * tests/benchmarking.cpp
+ * benchmarking.cpp
  *
  * Runs every queue implementation through a matrix of workloads and writes
  * one CSV per (queue × workload) pair.  The Python plotting script reads
@@ -15,10 +15,12 @@
  *
  * Build
  * ─────
+ *  # From the tests/ directory:
  *  g++ -O2 -std=c++20 \
- *      tests/benchmarking.cpp \
- *      coarse_mutex.cpp two_locks.cpp ms.cpp hazard_pointer.cpp vuykov.cpp \
- *      -I. -lpthread -o bench_all && ./bench_all
+ *      benchmarking.cpp \
+ *      ../coarse_mutex.cpp ../two_locks.cpp ../ms.cpp \
+ *      ../hazard_pointer.cpp ../vuykov.cpp \
+ *      -I.. -lpthread -o bench_all && ./bench_all
  *
  * Output
  * ──────
