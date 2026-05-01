@@ -179,78 +179,136 @@ def save(fig, path: Path, dpi: int):
     print(f"  saved → {path.stem}.pdf + .png")
 
 
-# ── Figure 1 ──────────────────────────────────────────────────────────────────
+# ── Figure 1: latency histogram, one plot per (workload × role) ──────────────
+#
+# Each queue gets its own histogram (semi-transparent, overlapping).
+# Vertical dashed lines mark p50, p90, p99 for every queue using the
+# same colour/style as its histogram bars.
+# Y-axis: percentage of samples (frequency / total * 100).
+
+def latency_hist(ax, samples, color, ls, label, n_bins=200):
+    """
+    Plot a normalised histogram for `samples` on `ax`.
+    Returns (p50, p90, p99) for annotation.
+    """
+    p50  = float(np.percentile(samples, 50))
+    p90  = float(np.percentile(samples, 90))
+    p99  = float(np.percentile(samples, 99))
+
+    # Bin on the full range but clip extreme outliers for display
+    lo, hi = np.percentile(samples, 0.5), np.percentile(samples, 99.9)
+    bins = np.linspace(lo, hi, n_bins)
+
+    counts, edges = np.histogram(samples, bins=bins)
+    pct    = counts / len(samples) * 100
+    widths = np.diff(edges)
+    ax.bar(edges[:-1], pct, widths,
+           color=color, alpha=0.45, linewidth=0,
+           label=label)
+    # Outline only
+    ax.step(edges[:-1], pct, where="post",
+            color=color, linewidth=0.7, linestyle=ls)
+    return p50, p90, p99
+
+
+def annotate_percentiles(ax, p50, p90, p99, color):
+    """Draw vertical lines at p50 / p90 / p99 in the queue's colour."""
+    for val, lbl, ls in [(p50, "p50", ":"),
+                          (p90, "p90", "--"),
+                          (p99, "p99", "-.")]:
+        ax.axvline(val, color=color, linewidth=0.7, linestyle=ls, alpha=0.85)
+        # Label at a fixed axes-fraction height so it doesn't depend on ylim
+        ax.text(val, 1.0, lbl,
+                color=color, fontsize=5, ha="center", va="top",
+                rotation=90, transform=ax.get_xaxis_transform())
+
 
 def plot_compare_queues(raw, plots_dir, dpi, width):
+    """Figure 1 — histogram per queue, one figure per (workload × role)."""
     for wl in WORKLOAD_ORDER:
         for role in ROLES:
             present = [(q, raw[(q, wl)]) for q in QUEUE_ORDER if (q, wl) in raw]
             if not present:
                 continue
+
             fig, ax = new_fig(width, width * 0.65)
-            lines_data, legend_ent = [], []
+            legend_ent = []
+
             for i, (queue, df) in enumerate(present):
-                rdf = df[df["role"] == role]
+                rdf = df[df["role"] == role]["cycles"].dropna()
                 if rdf.empty:
                     continue
-                x, y = ecdf(rdf["cycles"])
-                c, ls, mk, me = LINE_STYLES[i % len(LINE_STYLES)]
-                ax.plot(x, y * 100, color=c, linestyle=ls,
-                        marker=mk, markevery=max(1, int(len(x) * me)),
-                        linewidth=1.0, markersize=3)
-                lines_data.append((x, y, c, ls, mk, me))
-                legend_ent.append((c, ls, mk, me, queue.replace("_", " ")))
-            if not lines_data:
+                c, ls, _, _ = LINE_STYLES[i % len(LINE_STYLES)]
+                samples = rdf.values
+                p50, p90, p99 = latency_hist(ax, samples, c, ls,
+                                             label=queue.replace("_", " "))
+                annotate_percentiles(ax, p50, p90, p99, c)
+                legend_ent.append((c, ls, None, 0, queue.replace("_", " ")))
+
+            if not legend_ent:
                 plt.close(fig)
                 continue
-            add_pct_lines(ax)
+
             ax.set_xlabel("Latency (cycles)")
-            ax.set_ylabel("Cumulative probability (%)")
-            ax.set_title(f"Queue comparison: {wl.replace('_',' ')} ({role})")
-            ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.0f%%"))
+            ax.set_ylabel("Frequency (%)")
+            ax.set_title(f"Latency distribution: {wl.replace('_',' ')} ({role})")
+            ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.1f%%"))
             ax.legend(handles=legend_handles(legend_ent),
                       frameon=True, framealpha=0.9,
-                      edgecolor="#cccccc", fancybox=False, handlelength=2.5)
+                      edgecolor="#cccccc", fancybox=False, handlelength=2.0)
             style_ax(ax)
-            add_tail_inset(ax, lines_data)
+
+            # Percentile legend note
+            ax.plot([], [], color="grey", ls=":",  lw=0.7, label="p50")
+            ax.plot([], [], color="grey", ls="--", lw=0.7, label="p90")
+            ax.plot([], [], color="grey", ls="-.", lw=0.7, label="p99")
+            ax.legend(frameon=True, framealpha=0.9,
+                      edgecolor="#cccccc", fancybox=False,
+                      handlelength=2.0, fontsize=6, ncol=2)
+
             save(fig, plots_dir / f"compare_{wl}_{role}", dpi)
 
 
-# ── Figure 2 ──────────────────────────────────────────────────────────────────
+# ── Figure 2: single queue, all workloads overlapping ────────────────────────
 
 def plot_workloads_per_queue(raw, plots_dir, dpi, width):
+    """Figure 2 — histogram per workload, one figure per (queue × role)."""
     for queue in QUEUE_ORDER:
         for role in ROLES:
             present = [(wl, raw[(queue, wl)]) for wl in WORKLOAD_ORDER
                        if (queue, wl) in raw]
             if not present:
                 continue
+
             fig, ax = new_fig(width, width * 0.65)
-            lines_data, legend_ent = [], []
+            legend_ent = []
+
             for i, (wl, df) in enumerate(present):
-                rdf = df[df["role"] == role]
+                rdf = df[df["role"] == role]["cycles"].dropna()
                 if rdf.empty:
                     continue
-                x, y = ecdf(rdf["cycles"])
-                c, ls, mk, me = LINE_STYLES[i % len(LINE_STYLES)]
-                ax.plot(x, y * 100, color=c, linestyle=ls,
-                        marker=mk, markevery=max(1, int(len(x) * me)),
-                        linewidth=1.0, markersize=3)
-                lines_data.append((x, y, c, ls, mk, me))
-                legend_ent.append((c, ls, mk, me, wl.replace("_", " ")))
-            if not lines_data:
+                c, ls, _, _ = LINE_STYLES[i % len(LINE_STYLES)]
+                samples = rdf.values
+                p50, p90, p99 = latency_hist(ax, samples, c, ls,
+                                             label=wl.replace("_", " "))
+                annotate_percentiles(ax, p50, p90, p99, c)
+                legend_ent.append((c, ls, None, 0, wl.replace("_", " ")))
+
+            if not legend_ent:
                 plt.close(fig)
                 continue
-            add_pct_lines(ax)
+
             ax.set_xlabel("Latency (cycles)")
-            ax.set_ylabel("Cumulative probability (%)")
+            ax.set_ylabel("Frequency (%)")
             ax.set_title(f"{queue.replace('_',' ')}: workload comparison ({role})")
-            ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.0f%%"))
-            ax.legend(handles=legend_handles(legend_ent),
-                      frameon=True, framealpha=0.9,
-                      edgecolor="#cccccc", fancybox=False, handlelength=2.5)
+            ax.yaxis.set_major_formatter(ticker.FormatStrFormatter("%.1f%%"))
+            ax.plot([], [], color="grey", ls=":",  lw=0.7, label="p50")
+            ax.plot([], [], color="grey", ls="--", lw=0.7, label="p90")
+            ax.plot([], [], color="grey", ls="-.", lw=0.7, label="p99")
+            ax.legend(frameon=True, framealpha=0.9,
+                      edgecolor="#cccccc", fancybox=False,
+                      handlelength=2.0, fontsize=6, ncol=2)
             style_ax(ax)
-            add_tail_inset(ax, lines_data)
             save(fig, plots_dir / f"workloads_{queue}_{role}", dpi)
 
 
